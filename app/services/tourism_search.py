@@ -175,6 +175,115 @@ class TourismSearchService:
             location
             for _, location in scored_results[:limit]
         ]
+    
+    def search_advanced(
+        self,
+        query: str,
+        category: str | None = None,
+        locations: list[str] | None = None,
+        detail_keywords: list[str] | None = None,
+        require_image: bool = False,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        """
+        카테고리, 지역, 세부 키워드 조건을 분리하여 검색합니다.
+
+        지역 조건은 모두 만족해야 합니다.
+        예: ["유성구", "지족동"]
+        → 주소에 유성구와 지족동이 모두 포함되어야 함
+        """
+
+        locations = locations or []
+        detail_keywords = detail_keywords or []
+
+        filtered_locations: list[dict[str, Any]] = []
+
+        for location in self.locations:
+            if (
+                category
+                and location["category"] != category
+            ):
+                continue
+
+            address = location["address"].lower()
+            title = location["title"].lower()
+            image_url = location["image_url"]
+
+            # 추출한 지역 조건을 모두 만족해야 합니다.
+            if locations:
+                matches_all_locations = all(
+                    region.lower() in address
+                    for region in locations
+                )
+
+                if not matches_all_locations:
+                    continue
+
+            if require_image and not image_url:
+                continue
+
+            # 세부 키워드는 별도 점수 계산에 활용합니다.
+            score = 0
+
+            for keyword in detail_keywords:
+                lowered_keyword = keyword.lower()
+
+                if lowered_keyword in title:
+                    score += 10
+
+                if lowered_keyword in address:
+                    score += 3
+
+                # 카페 데이터에는 제목에 카페가 직접 없고
+                # 커피 또는 베이커리만 있을 수도 있습니다.
+                if lowered_keyword == "카페":
+                    cafe_synonyms = [
+                        "카페",
+                        "커피",
+                        "베이커리",
+                    ]
+
+                    if any(
+                        synonym in title
+                        for synonym in cafe_synonyms
+                    ):
+                        score += 8
+
+            # 일반 검색어도 보조 점수로 사용합니다.
+            query_keywords = [
+                keyword
+                for keyword in query.lower().split()
+                if keyword
+            ]
+
+            for keyword in query_keywords:
+                if keyword in title:
+                    score += 4
+
+                if keyword in address:
+                    score += 2
+
+            # 지역 및 카테고리 조건은 만족했지만
+            # 제목 키워드가 없는 경우도 후보에 포함합니다.
+            if locations or category:
+                score += 1
+
+            filtered_locations.append(
+                {
+                    "score": score,
+                    "place": location,
+                }
+            )
+
+        filtered_locations.sort(
+            key=lambda item: item["score"],
+            reverse=True,
+        )
+
+        return [
+            item["place"]
+            for item in filtered_locations[:limit]
+        ]    
 
     def get_by_category(
         self,
