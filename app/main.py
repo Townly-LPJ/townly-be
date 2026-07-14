@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.api.chat import router as chat_router
 
 from app.api.posts import router as posts_router
 from app.core.config import settings
@@ -15,6 +16,8 @@ app = FastAPI(
     title=settings.app_name,
     version="1.0.0",
 )
+
+app.include_router(chat_router)
 
 app.add_middleware(
     CORSMiddleware,
