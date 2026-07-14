@@ -1,9 +1,4 @@
 # townly-be
-
-# LocalHub Backend
-
-지역 정보 공유 커뮤니티(LocalHub) 백엔드 프로젝트입니다.
-
 ## Tech Stack
 
 - Python 3.12+
@@ -68,15 +63,7 @@ pip install -r requirements.txt
 
 ## 5. 환경변수 설정
 
-`.env.example`을 복사하여 `.env` 파일을 생성합니다.
-
-```bash
-cp .env.example .env
-```
-
-Windows에서 `cp`가 안 되면 `.env.example`을 복사해서 `.env`로 이름만 변경하면 됩니다.
-
-`.env`
+`.env` 파일을 생성합니다.
 
 ```env
 DATABASE_URL=sqlite:///./localhub.db
