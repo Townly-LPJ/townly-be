@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 
 from app.schemas.chat import ChatMessage
@@ -23,6 +24,7 @@ CATEGORY_KEYWORDS = {
         "커피",
         "베이커리",
         "빵집",
+        "디저트",
     ],
     "숙박": [
         "숙박",
@@ -72,8 +74,6 @@ CATEGORY_KEYWORDS = {
 }
 
 
-# 이번 프로젝트 데이터에 포함된 주요 지역입니다.
-# 이후 필요하면 지역을 추가하면 됩니다.
 KNOWN_LOCATIONS = [
     "대전광역시",
     "대전",
@@ -126,6 +126,41 @@ FOLLOWUP_EXPRESSIONS = [
 ]
 
 
+# 검색할 필요가 없는 일반 표현입니다.
+SEARCH_STOPWORDS = [
+    "추천해 줘",
+    "추천해줘",
+    "추천해 주세요",
+    "추천해주세요",
+    "알려 줘",
+    "알려줘",
+    "알려 주세요",
+    "알려주세요",
+    "찾아 줘",
+    "찾아줘",
+    "찾아 주세요",
+    "찾아주세요",
+    "어디 있어",
+    "어디 있나요",
+    "어디야",
+    "정보",
+    "관련",
+    "대한",
+    "웨이팅",
+    "대기",
+    "줄",
+    "팁",
+    "방법",
+    "요령",
+    "궁금해",
+    "궁금합니다",
+    "어때",
+    "어떤가요",
+    "말해줘",
+    "설명해줘",
+]
+
+
 @dataclass
 class QueryConditions:
     """사용자 질문에서 추출한 검색 조건."""
@@ -135,6 +170,7 @@ class QueryConditions:
     category: str | None = None
     locations: list[str] = field(default_factory=list)
     detail_keywords: list[str] = field(default_factory=list)
+    free_keywords: list[str] = field(default_factory=list)
     require_image: bool = False
     is_followup: bool = False
 
@@ -148,7 +184,6 @@ class QueryAnalyzer:
         history: list[ChatMessage],
     ) -> QueryConditions:
         normalized_message = message.strip()
-
         is_followup = self._is_followup(normalized_message)
 
         previous_user_message = (
@@ -167,11 +202,20 @@ class QueryAnalyzer:
         category = self._extract_category(context_text)
         locations = self._extract_locations(context_text)
         detail_keywords = self._extract_detail_keywords(context_text)
+
+        free_keywords = self._extract_free_keywords(
+            text=context_text,
+            category=category,
+            locations=locations,
+            detail_keywords=detail_keywords,
+        )
+
         require_image = self._requires_image(normalized_message)
 
         search_text = self._build_search_text(
             locations=locations,
             detail_keywords=detail_keywords,
+            free_keywords=free_keywords,
         )
 
         return QueryConditions(
@@ -180,6 +224,7 @@ class QueryAnalyzer:
             category=category,
             locations=locations,
             detail_keywords=detail_keywords,
+            free_keywords=free_keywords,
             require_image=require_image,
             is_followup=is_followup,
         )
@@ -203,8 +248,6 @@ class QueryAnalyzer:
     ) -> list[str]:
         found_locations: list[str] = []
 
-        # 긴 지역명부터 확인해야
-        # "대전광역시"가 "대전"보다 먼저 처리됩니다.
         sorted_locations = sorted(
             KNOWN_LOCATIONS,
             key=len,
@@ -215,7 +258,6 @@ class QueryAnalyzer:
             if location not in text:
                 continue
 
-            # 예: 대전광역시와 대전이 동시에 들어가는 것을 방지
             if any(
                 location in saved_location
                 or saved_location in location
@@ -237,28 +279,15 @@ class QueryAnalyzer:
                 "커피",
                 "베이커리",
                 "빵집",
+                "디저트",
             ],
-            "호텔": [
-                "호텔",
-            ],
-            "박물관": [
-                "박물관",
-            ],
-            "미술관": [
-                "미술관",
-            ],
-            "도서관": [
-                "도서관",
-            ],
-            "시장": [
-                "시장",
-            ],
-            "마트": [
-                "마트",
-            ],
-            "공원": [
-                "공원",
-            ],
+            "호텔": ["호텔"],
+            "박물관": ["박물관"],
+            "미술관": ["미술관"],
+            "도서관": ["도서관"],
+            "시장": ["시장"],
+            "마트": ["마트"],
+            "공원": ["공원"],
         }
 
         lowered_text = text.lower()
@@ -272,6 +301,68 @@ class QueryAnalyzer:
                 keywords.append(representative)
 
         return keywords
+
+    @staticmethod
+    def _extract_free_keywords(
+        text: str,
+        category: str | None,
+        locations: list[str],
+        detail_keywords: list[str],
+    ) -> list[str]:
+        """
+        지역·카테고리 외의 장소 고유명사를 추출합니다.
+
+        예:
+        '성심당 웨이팅 팁'
+        → ['성심당']
+        """
+
+        cleaned_text = text.lower()
+
+        for stopword in sorted(
+            SEARCH_STOPWORDS,
+            key=len,
+            reverse=True,
+        ):
+            cleaned_text = cleaned_text.replace(stopword, " ")
+
+        for expression in FOLLOWUP_EXPRESSIONS:
+            cleaned_text = cleaned_text.replace(expression, " ")
+
+        for location in locations:
+            cleaned_text = cleaned_text.replace(
+                location.lower(),
+                " ",
+            )
+
+        if category:
+            for keyword in CATEGORY_KEYWORDS[category]:
+                cleaned_text = cleaned_text.replace(
+                    keyword.lower(),
+                    " ",
+                )
+
+        for keyword in detail_keywords:
+            cleaned_text = cleaned_text.replace(
+                keyword.lower(),
+                " ",
+            )
+
+        # 한글, 영어, 숫자 외 문자를 공백으로 변환합니다.
+        cleaned_text = re.sub(
+            r"[^0-9a-zA-Z가-힣]+",
+            " ",
+            cleaned_text,
+        )
+
+        tokens = [
+            token
+            for token in cleaned_text.split()
+            if len(token) >= 2
+        ]
+
+        # 입력 순서를 유지하면서 중복 제거
+        return list(dict.fromkeys(tokens))
 
     @staticmethod
     def _requires_image(
@@ -313,10 +404,17 @@ class QueryAnalyzer:
     def _build_search_text(
         locations: list[str],
         detail_keywords: list[str],
+        free_keywords: list[str],
     ) -> str:
-        values = locations + detail_keywords
+        values = (
+            locations
+            + detail_keywords
+            + free_keywords
+        )
 
-        return " ".join(values)
+        return " ".join(
+            dict.fromkeys(values)
+        )
 
 
 query_analyzer = QueryAnalyzer()
