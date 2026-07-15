@@ -182,34 +182,47 @@ class TourismSearchService:
         category: str | None = None,
         locations: list[str] | None = None,
         detail_keywords: list[str] | None = None,
+        free_keywords: list[str] | None = None,
         require_image: bool = False,
         limit: int = 5,
     ) -> list[dict[str, Any]]:
         """
-        카테고리, 지역, 세부 키워드 조건을 분리하여 검색합니다.
-
-        지역 조건은 모두 만족해야 합니다.
-        예: ["유성구", "지족동"]
-        → 주소에 유성구와 지족동이 모두 포함되어야 함
+        카테고리, 지역, 세부 키워드, 장소 고유명사를
+        분리하여 검색합니다.
         """
 
         locations = locations or []
         detail_keywords = detail_keywords or []
+        free_keywords = free_keywords or []
 
-        filtered_locations: list[dict[str, Any]] = []
+        normalized_query = query.strip().lower()
 
-        for location in self.locations:
-            if (
-                category
-                and location["category"] != category
-            ):
+        # 아무 검색 조건도 없으면 임의의 장소를 반환하지 않습니다.
+        if not any(
+            [
+                normalized_query,
+                category,
+                locations,
+                detail_keywords,
+                free_keywords,
+                require_image,
+            ]
+        ):
+            return []
+
+        scored_results: list[
+            tuple[int, dict[str, Any]]
+        ] = []
+
+        for place in self.locations:
+            if category and place["category"] != category:
                 continue
 
-            address = location["address"].lower()
-            title = location["title"].lower()
-            image_url = location["image_url"]
+            title = place["title"].lower()
+            address = place["address"].lower()
+            place_category = place["category"].lower()
+            image_url = place["image_url"]
 
-            # 추출한 지역 조건을 모두 만족해야 합니다.
             if locations:
                 matches_all_locations = all(
                     region.lower() in address
@@ -222,67 +235,93 @@ class TourismSearchService:
             if require_image and not image_url:
                 continue
 
-            # 세부 키워드는 별도 점수 계산에 활용합니다.
             score = 0
+
+            # 장소 고유명사는 가장 높은 우선순위를 가집니다.
+            for keyword in free_keywords:
+                lowered_keyword = keyword.lower()
+
+                if title == lowered_keyword:
+                    score += 100
+                elif lowered_keyword in title:
+                    score += 60
+                elif lowered_keyword in address:
+                    score += 15
 
             for keyword in detail_keywords:
                 lowered_keyword = keyword.lower()
 
                 if lowered_keyword in title:
-                    score += 10
+                    score += 20
 
                 if lowered_keyword in address:
-                    score += 3
+                    score += 5
 
-                # 카페 데이터에는 제목에 카페가 직접 없고
-                # 커피 또는 베이커리만 있을 수도 있습니다.
                 if lowered_keyword == "카페":
                     cafe_synonyms = [
                         "카페",
                         "커피",
                         "베이커리",
+                        "빵",
+                        "디저트",
                     ]
 
                     if any(
                         synonym in title
                         for synonym in cafe_synonyms
                     ):
-                        score += 8
+                        score += 15
 
-            # 일반 검색어도 보조 점수로 사용합니다.
             query_keywords = [
                 keyword
-                for keyword in query.lower().split()
+                for keyword in normalized_query.split()
                 if keyword
             ]
 
             for keyword in query_keywords:
-                if keyword in title:
-                    score += 4
+                if title == keyword:
+                    score += 40
+                elif keyword in title:
+                    score += 12
 
                 if keyword in address:
+                    score += 4
+
+                if keyword in place_category:
                     score += 2
 
-            # 지역 및 카테고리 조건은 만족했지만
-            # 제목 키워드가 없는 경우도 후보에 포함합니다.
+            # 지역 또는 명시적 카테고리 조건을 통과한 장소에만
+            # 최소 점수를 부여합니다.
             if locations or category:
                 score += 1
 
-            filtered_locations.append(
-                {
-                    "score": score,
-                    "place": location,
-                }
-            )
+            # 고유명사 검색인데 일치하지 않은 장소는 제외합니다.
+            if free_keywords:
+                matches_free_keyword = any(
+                    keyword.lower() in title
+                    or keyword.lower() in address
+                    for keyword in free_keywords
+                )
 
-        filtered_locations.sort(
-            key=lambda item: item["score"],
+                if not matches_free_keyword:
+                    continue
+
+            if score > 0:
+                scored_results.append(
+                    (score, place)
+                )
+
+        scored_results.sort(
+            key=lambda result: (
+                result[0],
+                result[1]["title"],
+            ),
             reverse=True,
         )
 
         return [
-            item["place"]
-            for item in filtered_locations[:limit]
+            place
+            for _, place in scored_results[:limit]
         ]    
 
     def get_by_category(
