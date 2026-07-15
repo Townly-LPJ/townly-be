@@ -50,6 +50,11 @@ class Post(Base):
         nullable=False,
     )
 
+    image_url: Mapped[str | None] = mapped_column(
+        String(2048), 
+        nullable=True,  
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
