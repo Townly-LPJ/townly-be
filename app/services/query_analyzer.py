@@ -1,4 +1,3 @@
-import re
 from dataclasses import dataclass, field
 
 from app.schemas.chat import ChatMessage
