@@ -22,6 +22,7 @@ def create_post(
         content=request.content,
         nickname=request.nickname,
         password_hash=hash_password(request.password),
+        image_url=request.image_url, # 추가됨
     )
 
     db.add(post)
@@ -76,6 +77,8 @@ def update_post(
     post.category = request.category.value
     post.title = request.title
     post.content = request.content
+    if request.image_url is not None:
+        post.image_url = request.image_url
 
     db.commit()
     db.refresh(post)
